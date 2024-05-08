@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const nodemailer = require('nodemailer');
+const Post = require('../models/postModel');
 
 const securePassword = async (password) => {
     try {
@@ -102,6 +103,7 @@ const insertUser = async (req, res) => {
 
 const loginUser = async (req, res) => {
     try {
+        console.log(req.body);
         const { username, password } = req.body;
         if (!username || !password) return res.status(400).json({ success: false, message: "Please fill all the requried fields!" });
         const isExist = await User.findOne({ username: username });
@@ -149,19 +151,179 @@ const setPassword = async (req, res) => {
         if (isExist) {
             const newPassword = await bcrypt.hash(password, 10);
             await User.findOneAndUpdate({ email: isExist.email }, { $set: { password: newPassword } })
-            res.status(200).json({ success: true, message: "Password reset successfully!", userData:isExist});
+            res.status(200).json({ success: true, message: "Password reset successfully!", userData: isExist });
         } else {
             res.status(400).json({ success: false, message: "You are not a register user please do registation first!" });
         }
     } catch (error) {
-        res.status(400).json({success:false,message:error.message});
+        res.status(400).json({ success: false, message: error.message });
     }
 }
 
+
+const createPost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const reqBody = req.body;
+        const { title, content, description } = reqBody
+        if (!title || !content || !description) return res.status(400).json({ success: false, message: "Please fill all the required fields!" });
+        const postData = await Post.create({
+            CreaterId: userData.userId,
+            title: title,
+            content: content,
+            description: description
+        })
+        res.status(200).json({ success: true, message: "Post created successfully!", post: postData });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+
+const updatePost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const reqBody = req.body;
+        const { title, content, description, postId } = reqBody
+        if(!title||!content||!description||!postId) return res.status(400).json({success:false,message:"fill all the requried fields!"})
+
+        const isPost = await Post.findOne({ _id: postId })
+        if (isPost) {
+            const isYourPost = await Post.findOne({ _id: postId, CreaterId: userData.userId })
+            if (isYourPost) {
+                const postData = await Post.findOneAndUpdate(
+                    {
+                        _id: postId
+                    }
+                    ,
+                    {
+                        $set:
+                        {
+                            title,
+                            content,
+                            description
+
+                        }
+                    },{new:true}
+                )
+                res.status(200).json({ success: true, message: "Post updated successfully!", post: postData });
+
+            } else {
+                res.status(400).json({ success: false, message: "This is not Your Post!" });
+            }
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+const viewAllPost = async (req, res) => {
+    try {
+        const postData = await Post.find({})
+        if (postData) {
+            res.status(200).json({ success: true, message: "Post found successfully!", post: postData });
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+
+const viewMyPost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const postData = await Post.find({ CreaterId: userData.userId })
+        if (postData) {
+            res.status(200).json({ success: true, message: "Post found successfully!", post: postData });
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+const deleteMyPost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const reqBody = req.body;
+        const { postId } = reqBody
+        if (!postId) return res.status(400).json({ success: false, message: "Please fill all the required fields!" });
+        const isPost = await Post.findOne({ _id: postId })
+        // console.log(isPost);
+        if (isPost) {
+            const isYourPost = await Post.findOne({ _id: postId, CreaterId: userData.userId })
+            if (isYourPost) {
+                await Post.findOneAndDelete({
+                    _id: postId, CreaterId: userData.userId
+                })
+                res.status(200).json({ success: true, message: "Post deleted successfully!" });
+            } else {
+                res.status(400).json({ success: false, message: "This is not Your post. you can't delete this!" });
+            }
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+const likePost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const reqBody = req.body;
+        const { postId } = reqBody;
+        if(!postId) return res.status(400).json({success:false,message:"please provide all the requried fill!"})
+        const isPost = await Post.findOne({ _id: postId })
+        console.log(isPost);
+        if (isPost) {
+            isPost.likes.forEach((userId) => {
+                if (userId == userData.userId) res.status(400).json({ success: false, message: "You already liked this post" });
+            })
+            await Post.findOneAndUpdate({ _id: postId }, { $push: { likes: userData.userId } })
+            res.status(200).json({ success: true, message: "You liked this post" });
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
+
+const commentPost = async (req, res) => {
+    try {
+        const userData = req.user.userData;
+        const reqBody = req.body;
+        const { comment, postId } = reqBody;
+        if(!comment||!postId) return res.status(400).json({success:false,message:"please fill all the required filds!"})
+        const isPost = await Post.findOne({ _id: postId })
+        if (isPost) {
+            await Post.findOneAndUpdate({ _id: postId }, { $push: { comments: { comment: comment, userId: userData.userId } } })
+            res.status(200).json({ success: true, message: "You have comment this post" });
+        } else {
+            res.status(400).json({ success: false, message: "Post not found!" });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+}
 
 module.exports = {
     insertUser,
     loginUser,
     forgetPassword,
-    setPassword
+    setPassword,
+    createPost,
+    viewAllPost,
+    viewMyPost,
+    updatePost,
+    deleteMyPost,
+    likePost,
+    commentPost
 }
